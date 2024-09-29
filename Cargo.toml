@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "description"
 authors = ["_numbp"]
-documentation = "url"
-repository = "url"
+documentation = "https://docs.rs/signalrs/0.1.0"
+repository = "https://github.com/go-numb/signalrs"
 license = "MIT"
 
 [lib]
