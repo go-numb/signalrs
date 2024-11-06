@@ -49,8 +49,7 @@ pub fn process(_logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &TickerS
         }
     };
 
-    warn!("flag: {}", lastest_ticker.flag());
-    return;
+    info!("flag: {}", lastest_ticker.flag());
 
     #[allow(unreachable_code)]
     match Flag::from(lastest_ticker.flag()) {

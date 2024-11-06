@@ -50,8 +50,8 @@ pub fn by(logic_setting: Arc<RwLock<Data>>, tickers: &TickerStats) {
             std::thread::spawn(move || simple::process(setting, &cloned_tickers));
         }
         1..=2 => {
-            trace!("switch to buy entry only logic");
-            std::thread::spawn(move || entry::process(setting, &cloned_tickers));
+            trace!("switch to buy/sell entry only logic");
+            std::thread::spawn(move || entry::process(order_type, setting, &cloned_tickers));
         }
         3 => {
             trace!("switch to settlement order only logic");
