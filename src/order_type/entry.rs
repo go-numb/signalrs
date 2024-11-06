@@ -7,6 +7,7 @@ use crate::{
 };
 
 use log::info;
+use rust_decimal::{prelude::Zero, Decimal};
 
 /// シンプルな注文及び決済処理を行う
 /// 指定時間遡り、直近のTicker mid値と現在のTicker mid値の差分を計算し、設定値以上差が生じれば注文を行う
@@ -31,8 +32,22 @@ pub fn process(t: u8, logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &T
     if target_diff_ticks < diff.abs() {
         // order_type 1: 買い注文, 2: 売り注文
         let entry_mouse = match t {
-            1 => readed.mouse_entry_buy.clone(),
-            2 => readed.mouse_entry_sell.clone(),
+            1 => {
+                if diff < Decimal::zero() {
+                    info!("failed miss match order_type & trade side: {:?}", t);
+                    return;
+                }
+
+                readed.mouse_entry_buy.clone()
+            }
+            2 => {
+                if diff > Decimal::zero() {
+                    info!("failed miss match order_type & trade side: {:?}", t);
+                    return;
+                }
+
+                readed.mouse_entry_sell.clone()
+            }
             _ => {
                 info!("failed order_type: {:?}", t);
                 return;
