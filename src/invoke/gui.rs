@@ -221,12 +221,10 @@ impl fmt::Debug for Order {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "side: {}, entry: {}, exit: {}, entried_at: {}, exited_at: {}",
+            "side: {}, entry: {}, entried_at: {}",
             self.side,
             self.entry,
-            self.exit,
-            self.entried_at.format("%H:%M:%S UTC"),
-            self.exited_at.format("%H:%M:%S UTC")
+            self.entried_at.format("%H:%M:%S UTC")
         )
     }
 }
