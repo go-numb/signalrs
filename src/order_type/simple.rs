@@ -1,7 +1,10 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    invoke::{self, gui::Order},
+    invoke::{
+        self,
+        gui::{Order, Setting},
+    },
     middleware::{mouse, ticker::TickerStats, utils},
     order_type::process,
 };
@@ -13,7 +16,7 @@ use rust_decimal::{prelude::Zero, Decimal};
 /// 指定時間遡り、直近のTicker mid値と現在のTicker mid値の差分を計算し、設定値以上差が生じれば注文を行う
 /// 指定時間待機し、決済注文を行う
 pub fn process(logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &TickerStats) {
-    let (readed_setting, exit_mouse) = {
+    let (readed_setting, buy_mouse, sell_mouse, exit_mouse) = {
         let readed = match logic_setting.read() {
             Ok(setting) => setting,
             Err(e) => {
@@ -23,8 +26,15 @@ pub fn process(logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &TickerSt
         };
 
         let readed_setting = readed.setting.clone();
+        let readed_entry_buy_mouse = readed.mouse_entry_buy.clone();
+        let readed_entry_sell_mouse = readed.mouse_entry_sell.clone();
         let readed_exit_mouse = readed.mouse_exit.clone();
-        (readed_setting, readed_exit_mouse)
+        (
+            readed_setting,
+            readed_entry_buy_mouse,
+            readed_entry_sell_mouse,
+            readed_exit_mouse,
+        )
     };
 
     // 設定条件を取得
@@ -45,22 +55,14 @@ pub fn process(logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &TickerSt
         let mut order = Order::new(entry_price);
 
         let entry_mouse = {
-            let read = match logic_setting.read() {
-                Ok(setting) => setting,
-                Err(e) => {
-                    warn!("failed to read setting: {:?}", e);
-                    return;
-                }
-            };
-
             // 0値は上記条件で弾かれるため内包する
             // 0 < diff = buy, 0 > diff = sell
             if diff > Decimal::zero() {
                 order.side = "buy".to_string();
-                read.mouse_entry_buy.clone()
+                buy_mouse
             } else {
                 order.side = "sell".to_string();
-                read.mouse_entry_sell.clone()
+                sell_mouse
             }
         };
 
