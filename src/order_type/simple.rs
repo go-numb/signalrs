@@ -1,10 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    invoke::{
-        self,
-        gui::{Order, Setting},
-    },
+    invoke::{self, gui::Order},
     middleware::{mouse, ticker::TickerStats, utils},
     order_type::process,
 };
