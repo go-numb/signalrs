@@ -221,7 +221,7 @@ impl fmt::Debug for Order {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "side: {}, entry: {}, exit: {}, entried_at: {}, exited_at: {}",
+            "side: {}, ref entry: {}, ref exit: {}, entried_at: {}, exited_at: {}",
             self.side,
             self.entry,
             self.exit,
