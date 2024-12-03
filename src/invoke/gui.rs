@@ -28,9 +28,25 @@ impl WrappedData {
         }
     }
 
-    pub fn update(&self, ltp: Decimal) {
+    pub fn update(&self, update_exit_price: bool, ltp: Decimal) {
         let mut locked_data = self.data.write().unwrap();
         locked_data.status.update_ltp(ltp);
+
+        if !update_exit_price {
+            return;
+        }
+
+        if let Some(last_order) = locked_data.status.orders.last_mut() {
+            if last_order.exit != Decimal::new(0, 0) {
+                return;
+            }
+            // 現在価格を追記する
+            last_order.exit = ltp;
+            // 終了時間を追記する
+            last_order.exited_at = Utc::now();
+
+            locked_data.status.message = format!("order update: {:?}", last_order);
+        }
     }
 }
 
@@ -527,5 +543,36 @@ mod test {
 
         assert!(min_x <= x && x <= max_x);
         assert!(min_y <= y && y <= max_y);
+    }
+
+    #[test]
+    fn test_wrapped_data_update() {
+        // Setup initial data
+        let mut data = Data::default();
+        let initial_ltp = Decimal::new(100, 0);
+        let updated_ltp = Decimal::new(200, 0);
+
+        // Add an order
+        let mut order = Order::new(initial_ltp);
+        order.side = "BUY".to_string();
+        data.status.orders.push(order);
+
+        let wrapped = WrappedData::new(data);
+
+        // Test update without exit price update
+        wrapped.update(false, updated_ltp);
+        {
+            let locked = wrapped.data.read().unwrap();
+            assert_eq!(locked.status.ltp, updated_ltp);
+            assert_eq!(locked.status.orders[0].exit, Decimal::new(0, 0));
+        }
+
+        // Test update with exit price update
+        wrapped.update(true, updated_ltp);
+        {
+            let locked = wrapped.data.read().unwrap();
+            assert_eq!(locked.status.ltp, updated_ltp);
+            assert_eq!(locked.status.orders[0].exit, updated_ltp);
+        }
     }
 }
