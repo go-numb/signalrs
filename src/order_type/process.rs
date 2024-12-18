@@ -10,9 +10,8 @@ pub fn lock(s: Arc<RwLock<invoke::gui::Data>>) {
 pub fn unlock(s: Arc<RwLock<invoke::gui::Data>>, order: Option<Order>) {
     let mut rw = s.write().unwrap();
 
-    // 未使用のためコメントアウト
-    // rw.status.push(order);
-    // rw.status.shrink(100);
+    rw.status.push(order);
+    rw.status.shrink(8);
     rw.status.message = if let Some(order) = order {
         format!("{:?}", order)
     } else {

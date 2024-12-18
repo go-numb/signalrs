@@ -8,7 +8,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use log::trace;
 use rand::Rng;
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::Zero, Decimal};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -37,7 +37,7 @@ impl WrappedData {
         }
 
         if let Some(last_order) = locked_data.status.orders.last_mut() {
-            if last_order.exit != Decimal::new(0, 0) {
+            if last_order.exit != Decimal::zero() {
                 return;
             }
             // 現在価格を追記する
@@ -516,8 +516,8 @@ pub async fn confirm(state: State<'_, Arc<RwLock<Data>>>, t: u8, n: u8) -> Resul
         mouse_setting.end_y as i32,
     );
 
-    let mut xs = Vec::new();
-    let mut ys = Vec::new();
+    let mut xs = Vec::with_capacity(n as usize);
+    let mut ys = Vec::with_capacity(n as usize);
 
     for _ in 0..n {
         let (x, y) = mouse_c.random_xy(min_x, min_y, max_x, max_y);
