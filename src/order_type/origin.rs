@@ -170,3 +170,150 @@ fn exit(_is_buy: bool, logic_setting: Arc<RwLock<invoke::gui::Data>>) {
 
     process::unlock(logic_setting.clone(), None);
 }
+
+#[cfg(test)]
+mod test {
+    use crate::middleware::ticker::Ticker;
+
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn test_process_none_flag() {
+        env::set_var("RUST_LOG", "info");
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        // モック: TickerStatsにflag=0 (None) のティッカーを追加
+        let mut tickers = TickerStats::default();
+        tickers.push(Ticker {
+            flag: Some(0),
+            ..Default::default()
+        });
+
+        let logic_setting = Arc::new(RwLock::new(invoke::gui::Data::default()));
+        process(logic_setting, &tickers);
+        // ログ出力やpanicしないことを確認
+    }
+
+    #[test]
+    fn test_process_entry_buy_flag() {
+        env::set_var("RUST_LOG", "info");
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let mut tickers = TickerStats::default();
+        tickers.push(Ticker {
+            flag: Some(1),
+            ..Default::default()
+        });
+
+        let logic_setting = Arc::new(RwLock::new(invoke::gui::Data::default()));
+        {
+            let mut write = logic_setting.write().unwrap();
+            write.mouse_entry_buy = invoke::gui::Mouse {
+                n: 1,
+                start_x: 0,
+                start_y: 0,
+                end_x: 10,
+                end_y: 10,
+            };
+        }
+
+        process(logic_setting, &tickers);
+    }
+
+    #[test]
+    fn test_process_entry_sell_flag() {
+        env::set_var("RUST_LOG", "info");
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let mut tickers = TickerStats::default();
+        tickers.push(Ticker {
+            flag: Some(2),
+            ..Default::default()
+        });
+
+        let logic_setting = Arc::new(RwLock::new(invoke::gui::Data::default()));
+        process(logic_setting, &tickers);
+    }
+
+    #[test]
+    fn test_process_entry_buy_exit_flag() {
+        env::set_var("RUST_LOG", "info");
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let mut tickers = TickerStats::default();
+        tickers.push(Ticker {
+            flag: Some(3),
+            ..Default::default()
+        });
+
+        let logic_setting = Arc::new(RwLock::new(invoke::gui::Data::default()));
+        process(logic_setting, &tickers);
+    }
+
+    #[test]
+    fn test_process_entry_sell_exit_flag() {
+        env::set_var("RUST_LOG", "info");
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let mut tickers = TickerStats::default();
+        tickers.push(Ticker {
+            flag: Some(4),
+            ..Default::default()
+        });
+
+        let logic_setting = Arc::new(RwLock::new(invoke::gui::Data::default()));
+        process(logic_setting, &tickers);
+    }
+
+    #[test]
+    fn test_process_exit_buy_flag() {
+        env::set_var("RUST_LOG", "info");
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let mut tickers = TickerStats::default();
+        tickers.push(Ticker {
+            flag: Some(5),
+            ..Default::default()
+        });
+
+        let logic_setting = Arc::new(RwLock::new(invoke::gui::Data::default()));
+        process(logic_setting, &tickers);
+    }
+
+    #[test]
+    fn test_process_exit_sell_flag() {
+        env::set_var("RUST_LOG", "info");
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let mut tickers = TickerStats::default();
+        tickers.push(Ticker {
+            flag: Some(6),
+            ..Default::default()
+        });
+
+        let logic_setting = Arc::new(RwLock::new(invoke::gui::Data::default()));
+        process(logic_setting, &tickers);
+    }
+
+    // テスト用のヘルパー関数をTickerStatsに実装する必要があります
+    // 例:
+    // impl TickerStats {
+    //     pub fn push(&mut self, flag: u8) {
+    //         self.tickers.push(Ticker {
+    //             flag,
+    //             // 他のフィールドも適宜初期化
+    //             ..Default::default()
+    //         });
+    //     }
+    // }
+    fn test_process_no_ticker() {
+        env::set_var("RUST_LOG", "info");
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let tickers = TickerStats::default();
+        let logic_setting = Arc::new(RwLock::new(invoke::gui::Data::default()));
+        process(logic_setting, &tickers);
+        // no panic, logs "no ticker data"
+    }
+}
