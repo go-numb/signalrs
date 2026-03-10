@@ -158,104 +158,67 @@ pub trait Tickers {
     fn calculate_zscore_last(&self, field: &str) -> Result<Decimal, String>;
 }
 
-/// Shared implementation of `Tickers` for any slice-like container.
-/// Caller must supply an iterator and length.
-macro_rules! impl_tickers {
-    ($ty:ty, $iter_expr:expr, $len_expr:expr, $last_expr:expr) => {
-        impl Tickers for $ty {
-            fn std(&self) -> Option<Decimal> {
-                let mid = self.mean();
-                let sum = ($iter_expr)(self)
-                    .map(|t| {
-                        let diff = t.mid() - mid;
-                        diff * diff
-                    })
-                    .sum::<Decimal>();
 
-                let count = Decimal::from(($len_expr)(self));
-                let variance = sum / count;
-                variance.sqrt()
-            }
-
-            fn mean(&self) -> Decimal {
-                let sum = ($iter_expr)(self).map(|t| t.mid()).sum::<Decimal>();
-                let count = Decimal::from(($len_expr)(self));
-                sum / count
-            }
-
-            // mid() delegates to mean() - they are equivalent
-            fn mid(&self) -> Decimal {
-                self.mean()
-            }
-
-            fn zscore_bid(&self) -> Result<Decimal, String> {
-                let len = ($len_expr)(self);
-                if len < 2 {
-                    error!("データ数が2つ未満です。Zスコアを計算できません。");
-                    return Ok(Decimal::ZERO);
-                }
-
-                let n = Decimal::from(len as i64);
-                let (sum, sum_sq): (Decimal, Decimal) =
-                    ($iter_expr)(self).fold((Decimal::ZERO, Decimal::ZERO), |(sum, sum_sq), x| {
-                        let value = x.bid;
-                        (sum + value, sum_sq + value * value)
-                    });
-
-                let mean = sum / n;
-                let variance = (sum_sq - sum * sum / n) / (n - Decimal::ONE);
-                let std_dev = variance.sqrt().unwrap();
-
-                let last_value = ($last_expr)(self).unwrap().bid;
-                Ok((last_value - mean) / std_dev)
-            }
-
-            fn zscore_ask(&self) -> Result<Decimal, String> {
-                let len = ($len_expr)(self);
-                if len < 2 {
-                    error!("データ数が2つ未満です。Zスコアを計算できません。");
-                    return Ok(Decimal::ZERO);
-                }
-
-                let n = Decimal::from(len as i64);
-                let (sum, sum_sq): (Decimal, Decimal) =
-                    ($iter_expr)(self).fold((Decimal::ZERO, Decimal::ZERO), |(sum, sum_sq), x| {
-                        let value = x.ask;
-                        (sum + value, sum_sq + value * value)
-                    });
-
-                let mean = sum / n;
-                let variance = (sum_sq - sum * sum / n) / (n - Decimal::ONE);
-                let std_dev = variance.sqrt().unwrap();
-
-                let last_value = ($last_expr)(self).unwrap().ask;
-                Ok((last_value - mean) / std_dev)
-            }
-
-            fn calculate_zscore_last(&self, field: &str) -> Result<Decimal, String> {
-                match field {
-                    "bid" => self.zscore_bid(),
-                    "ask" => self.zscore_ask(),
-                    _ => Err("無効なフィールド名です。".to_string()),
-                }
-            }
-        }
-    };
+impl Tickers for Vec<Ticker> {
+    fn std(&self) -> Option<Decimal> {
+        let mid = self.mean();
+        let sum = self.iter().map(|t| { let diff = t.mid() - mid; diff * diff }).sum::<Decimal>();
+        let count = Decimal::from(self.len());
+        (sum / count).sqrt()
+    }
+    fn mean(&self) -> Decimal {
+        let sum = self.iter().map(|t| t.mid()).sum::<Decimal>();
+        sum / Decimal::from(self.len())
+    }
+    fn mid(&self) -> Decimal { self.mean() }
+    fn zscore_bid(&self) -> Result<Decimal, String> { zscore_field(self.iter(), self.len(), self.last().map(|t| t.bid), |t| t.bid) }
+    fn zscore_ask(&self) -> Result<Decimal, String> { zscore_field(self.iter(), self.len(), self.last().map(|t| t.ask), |t| t.ask) }
+    fn calculate_zscore_last(&self, field: &str) -> Result<Decimal, String> {
+        match field { "bid" => self.zscore_bid(), "ask" => self.zscore_ask(), _ => Err("無効なフィールド名です。".to_string()) }
+    }
 }
 
-impl_tickers!(
-    Vec<Ticker>,
-    |s: &Vec<Ticker>| s.iter(),
-    |s: &Vec<Ticker>| s.len(),
-    |s: &Vec<Ticker>| s.last()
-);
+impl Tickers for VecDeque<Ticker> {
+    fn std(&self) -> Option<Decimal> {
+        let mid = self.mean();
+        let sum = self.iter().map(|t| { let diff = t.mid() - mid; diff * diff }).sum::<Decimal>();
+        let count = Decimal::from(self.len());
+        (sum / count).sqrt()
+    }
+    fn mean(&self) -> Decimal {
+        let sum = self.iter().map(|t| t.mid()).sum::<Decimal>();
+        sum / Decimal::from(self.len())
+    }
+    fn mid(&self) -> Decimal { self.mean() }
+    fn zscore_bid(&self) -> Result<Decimal, String> { zscore_field(self.iter(), self.len(), self.back().map(|t| t.bid), |t| t.bid) }
+    fn zscore_ask(&self) -> Result<Decimal, String> { zscore_field(self.iter(), self.len(), self.back().map(|t| t.ask), |t| t.ask) }
+    fn calculate_zscore_last(&self, field: &str) -> Result<Decimal, String> {
+        match field { "bid" => self.zscore_bid(), "ask" => self.zscore_ask(), _ => Err("無効なフィールド名です。".to_string()) }
+    }
+}
 
-impl_tickers!(
-    VecDeque<Ticker>,
-    |s: &VecDeque<Ticker>| s.iter(),
-    |s: &VecDeque<Ticker>| s.len(),
-    |s: &VecDeque<Ticker>| s.back()
-);
+/// Shared zscore calculation
+fn zscore_field<'a>(
+    iter: impl Iterator<Item = &'a Ticker>,
+    len: usize,
+    last_value: Option<Decimal>,
+    field_fn: fn(&Ticker) -> Decimal,
+) -> Result<Decimal, String> {
+    if len < 2 {
+        error!("データ数が2つ未満です。Zスコアを計算できません。");
+        return Ok(Decimal::ZERO);
+    }
+    let n = Decimal::from(len as i64);
+    let (sum, sum_sq) = iter.fold((Decimal::ZERO, Decimal::ZERO), |(s, sq), x| {
+        let v = field_fn(x);
+        (s + v, sq + v * v)
+    });
+    let mean = sum / n;
+    let variance = (sum_sq - sum * sum / n) / (n - Decimal::ONE);
+    let std_dev = variance.sqrt().unwrap();
+    let last = last_value.unwrap();
+    Ok((last - mean) / std_dev)
+}
 
 #[cfg(test)]
 mod tests {

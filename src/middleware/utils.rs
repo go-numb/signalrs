@@ -11,19 +11,27 @@ pub fn sleep(sec: u64, ms: u64) {
 }
 
 pub fn ok(is_production: bool, sid: &str, jtc_s: &str) -> bool {
-    let s = match win::get_computer_identifier() {
-        Ok(s) => s,
-        Err(e) => {
-            error!("does not get compute identifier: {}", e);
+    #[cfg(target_os = "windows")]
+    {
+        let s = match win::get_computer_identifier() {
+            Ok(s) => s,
+            Err(e) => {
+                error!("does not get compute identifier: {}", e);
+                return false;
+            }
+        };
+
+        // 含まれるかどうか
+        // 本番環境でない場合は確認不要
+        if is_production && !sid.contains(s.as_str()) {
+            error!("{} is not included in {}", sid, s);
             return false;
         }
-    };
+    }
 
-    // 含まれるかどうか
-    // 本番環境でない場合は確認不要
-    if is_production && !sid.contains(s.as_str()) {
-        error!("{} is not included in {}", sid, s);
-        return false;
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (is_production, sid);
     }
 
     if expired(jtc_s) {
@@ -60,6 +68,7 @@ pub fn set_target_save_file(s: &str) -> String {
     target_save_file
 }
 
+#[cfg(target_os = "windows")]
 pub mod win {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;

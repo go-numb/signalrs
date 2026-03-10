@@ -37,7 +37,7 @@ impl WrappedData {
             return;
         }
 
-        if let Some(last_order) = locked_data.status.orders.last_mut() {
+        if let Some(last_order) = locked_data.status.orders.back_mut() {
             if last_order.exit != Decimal::ZERO {
                 return;
             }

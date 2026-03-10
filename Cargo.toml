@@ -15,7 +15,7 @@ crate-type = ["rlib", "cdylib"] # wasmやネイティブなど、様々な用途
 
 [dependencies]
 serde_json = { version = "1", features = ["std"] }
-tauri = { version = "1", features = ["shell-open"] }
+tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 rand = "0.8.5"
 serde_with = "3.17.0"
@@ -27,6 +27,8 @@ thiserror = "2"
 env_logger = "0.11.9"
 ta = "0.4.0"
 csv = "1.4.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = [
     "processthreadsapi",
     "securitybaseapi",
@@ -34,7 +36,3 @@ winapi = { version = "0.3", features = [
     "winbase",
     "sddl",
 ] }
-
-[features]
-# This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
-custom-protocol = ["tauri/custom-protocol"]
