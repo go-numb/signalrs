@@ -13,7 +13,7 @@ use rust_decimal::{prelude::Zero, Decimal};
 /// 指定時間遡り、直近のTicker mid値と現在のTicker mid値の差分を計算し、設定値以上差が生じれば注文を行う
 /// 指定時間待機し、決済注文を行う
 pub fn process(logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &TickerStats) {
-    let (readed_setting, buy_mouse, sell_mouse, exit_mouse) = {
+    let (setting, buy_mouse, sell_mouse, exit_mouse) = {
         let readed = match logic_setting.read() {
             Ok(setting) => setting,
             Err(e) => {
@@ -22,20 +22,16 @@ pub fn process(logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &TickerSt
             }
         };
 
-        let readed_setting = readed.setting.clone();
-        let readed_entry_buy_mouse = readed.mouse_entry_buy.clone();
-        let readed_entry_sell_mouse = readed.mouse_entry_sell.clone();
-        let readed_exit_mouse = readed.mouse_exit.clone();
         (
-            readed_setting,
-            readed_entry_buy_mouse,
-            readed_entry_sell_mouse,
-            readed_exit_mouse,
+            readed.setting.clone(),
+            readed.mouse_entry_buy.clone(),
+            readed.mouse_entry_sell.clone(),
+            readed.mouse_exit.clone(),
         )
     };
 
     // 設定条件を取得
-    let (target_diff_micros, target_diff_ticks) = readed_setting.get();
+    let (target_diff_micros, target_diff_ticks) = setting.get();
     trace!(
         "target order params - diff_micros: {}, diff_ticks: {}",
         target_diff_micros,
@@ -68,7 +64,7 @@ pub fn process(logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &TickerSt
         mouse_c.order(&entry_mouse);
 
         // 設定値待機する
-        let target_sleep_ms = readed_setting.get_sleep_ms();
+        let target_sleep_ms = setting.get_sleep_ms();
         utils::sleep(0, target_sleep_ms);
 
         // 決済注文のマウス操作

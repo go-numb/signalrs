@@ -15,7 +15,7 @@ use rust_decimal::{prelude::Zero, Decimal};
 pub fn process(t: u8, logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &TickerStats) {
     process::lock(logic_setting.clone());
 
-    let readed = {
+    let (setting, mouse_entry_buy, mouse_entry_sell) = {
         let read = match logic_setting.read() {
             Ok(setting) => setting,
             Err(e) => {
@@ -24,9 +24,13 @@ pub fn process(t: u8, logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &T
             }
         };
 
-        read.clone()
+        (
+            read.setting.clone(),
+            read.mouse_entry_buy.clone(),
+            read.mouse_entry_sell.clone(),
+        )
     };
-    let (target_diff_micros, target_diff_ticks) = readed.setting.get();
+    let (target_diff_micros, target_diff_ticks) = setting.get();
 
     let diff = tickers.diff(target_diff_micros);
     if target_diff_ticks < diff.abs() {
@@ -38,7 +42,7 @@ pub fn process(t: u8, logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &T
                     return;
                 }
 
-                readed.mouse_entry_buy.clone()
+                mouse_entry_buy
             }
             2 => {
                 if diff > Decimal::zero() {
@@ -46,7 +50,7 @@ pub fn process(t: u8, logic_setting: Arc<RwLock<invoke::gui::Data>>, tickers: &T
                     return;
                 }
 
-                readed.mouse_entry_sell.clone()
+                mouse_entry_sell
             }
             _ => {
                 info!("failed order_type: {:?}", t);

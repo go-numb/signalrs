@@ -2,7 +2,7 @@ use log::{error, info};
 use serde::de::DeserializeOwned;
 use serde_json::Error;
 use std::{
-    io::Read,
+    io::BufRead,
     net::{TcpListener, TcpStream},
     sync::mpsc::{Receiver, Sender},
 };
@@ -31,28 +31,25 @@ where
 
         std::thread::spawn(move || {
             info!("connect to {}", addr);
-            let mut stream = match TcpStream::connect(addr) {
+            let stream = match TcpStream::connect(addr) {
                 Ok(s) => s,
                 Err(e) => {
                     error!("Failed to connect: {}", e);
                     return;
                 }
             };
-            let mut buffer = [0; 128];
 
-            loop {
-                match stream.read(&mut buffer) {
-                    Ok(0) => {
-                        info!("Client disconnected");
-                        break;
-                    }
-                    Ok(size) => {
-                        let data = &buffer[..size];
-                        match serde_json::from_slice::<T>(data) {
+            let reader = std::io::BufReader::new(&stream);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) if line.is_empty() => continue,
+                    Ok(line) => {
+                        match serde_json::from_str::<T>(&line) {
                             Ok(t) => {
                                 tx.send(Ok(t)).unwrap();
                             }
                             Err(e) => {
+                                error!("Failed to parse JSON: {}", e);
                                 tx.send(Err(e)).unwrap();
                             }
                         }
@@ -77,44 +74,27 @@ where
 
             for stream in listener.incoming() {
                 match stream {
-                    Ok(mut stream) => {
+                    Ok(stream) => {
                         let tx = tx.clone();
                         std::thread::spawn(move || {
-                            let mut buffer = [0; 128]; // バッファをスレッドごとに定義
-
-                            loop {
-                                match stream.read(&mut buffer) {
-                                    Ok(0) => {
-                                        info!("Client disconnected");
-                                        break; // クライアント切断時にはループを抜ける
-                                    }
-                                    Ok(size) => {
-                                        match serde_json::from_slice::<T>(&buffer[..size]) {
+                            let reader = std::io::BufReader::new(&stream);
+                            for line in reader.lines() {
+                                match line {
+                                    Ok(line) if line.is_empty() => continue,
+                                    Ok(line) => {
+                                        match serde_json::from_str::<T>(&line) {
                                             Ok(t) => {
-                                                match tx.send(Ok(t)) {
-                                                    Ok(_) => {}
-                                                    Err(e) => {
-                                                        error!("Failed to send to channel, cause by blocked: {}", e);
-                                                    }
-                                                };
+                                                tx.send(Ok(t)).unwrap();
                                             }
                                             Err(e) => {
-                                                error!("Failed to read from socket: {}", e);
+                                                error!("Failed to parse JSON: {}", e);
                                                 tx.send(Err(e)).unwrap();
                                             }
-                                        }
-                                        // バッファのクリア
-                                        unsafe {
-                                            std::ptr::write_bytes(
-                                                buffer.as_mut_ptr(),
-                                                0,
-                                                buffer.len(),
-                                            );
                                         }
                                     }
                                     Err(e) => {
                                         error!("Failed to read from socket: {}", e);
-                                        break; // エラー時にはループを抜ける
+                                        break;
                                     }
                                 }
                             }

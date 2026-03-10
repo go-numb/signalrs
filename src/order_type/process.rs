@@ -11,10 +11,10 @@ pub fn unlock(s: Arc<RwLock<invoke::gui::Data>>, order: Option<Order>) {
     let mut rw = s.write().unwrap();
 
     rw.status.message = if let Some(order) = order {
-        rw.status.push(order.clone());
+        let msg = format!("{:?}", order);
+        rw.status.push(order);
         rw.status.shrink(8);
-
-        format!("{:?}", order)
+        msg
     } else {
         "undefined".to_string()
     };

@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use chrono::{DateTime, Utc};
 use log::error;
 use rust_decimal::{prelude::Zero, Decimal, MathematicalOps};
@@ -25,7 +27,7 @@ impl Ticker {
     }
 
     pub fn mid(&self) -> Decimal {
-        (self.bid + self.ask) / Decimal::from(2)
+        (self.bid + self.ask) / Decimal::TWO
     }
 
     // CORE: サーバー時刻と受信時刻の差分を計算する
@@ -41,26 +43,30 @@ impl Ticker {
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct TickerStats {
-    data: Vec<Ticker>,
+    data: VecDeque<Ticker>,
 }
 
 impl From<Vec<Ticker>> for TickerStats {
     fn from(tickers: Vec<Ticker>) -> Self {
-        TickerStats { data: tickers }
+        TickerStats {
+            data: VecDeque::from(tickers),
+        }
     }
 }
 
 impl TickerStats {
     pub fn new() -> Self {
-        TickerStats { data: Vec::new() }
+        TickerStats {
+            data: VecDeque::new(),
+        }
     }
 
     pub fn push(&mut self, t: Ticker) {
-        self.data.push(t);
+        self.data.push_back(t);
     }
 
     pub fn last(&self) -> Option<&Ticker> {
-        self.data.last()
+        self.data.back()
     }
 
     pub fn len(&self) -> usize {
@@ -74,7 +80,7 @@ impl TickerStats {
     // mid price
     pub fn mid(&self) -> Decimal {
         let t = self.last().unwrap();
-        (t.bid + t.ask) / Decimal::from(2)
+        (t.bid + t.ask) / Decimal::TWO
     }
 
     pub fn zscore(&self, field: &str) -> Result<Decimal, String> {
@@ -87,11 +93,31 @@ impl TickerStats {
     pub fn filter_micros(&self, micros: i64) -> Option<&Ticker> {
         let latest = self.last().and_then(|f| f.recived_at.as_ref()).unwrap();
 
-        for t in self.data.iter().rev() {
+        // Timestamps are monotonic, so we can binary search.
+        // We want the last element whose recived_at is more than `micros` before `latest`.
+        // Use partition_point on slices obtained from the VecDeque.
+        let (front, back) = self.data.as_slices();
+
+        // Helper: check if a ticker's timestamp is within the micros threshold
+        // We want the partition point where diff > micros transitions to diff <= micros
+        // Since timestamps are monotonic (oldest first), diffs decrease as we go forward.
+        // partition_point finds first element where predicate is false.
+        // Predicate: diff > micros (i.e., element is old enough)
+        let pred = |t: &Ticker| -> bool {
             let diff = latest.signed_duration_since(t.recived_at.unwrap());
-            if diff.num_microseconds().unwrap() > micros {
-                return Some(t);
-            }
+            diff.num_microseconds().unwrap() > micros
+        };
+
+        // Search back slice first (it contains later elements)
+        let back_point = back.partition_point(|t| pred(t));
+        if back_point > 0 {
+            return Some(&back[back_point - 1]);
+        }
+
+        // Then search front slice
+        let front_point = front.partition_point(|t| pred(t));
+        if front_point > 0 {
+            return Some(&front[front_point - 1]);
         }
 
         None
@@ -113,16 +139,13 @@ impl TickerStats {
 
     // 指定配列数に縮小する
     pub fn shrink(&mut self, limit_length: usize) {
-        // limit_length以上の古い部分を捨てる
-        if self.len() > limit_length {
-            let truncate = self.len() - limit_length;
-            // 0..truncateの範囲を捨てる
-            self.data.drain(0..truncate);
+        while self.data.len() > limit_length {
+            self.data.pop_front();
         }
     }
 }
 
-// Vec<Ticker>への汎用的な処理
+// Vec<Ticker> / VecDeque<Ticker>への汎用的な処理
 pub trait Tickers {
     #[allow(unused)]
     fn std(&self) -> Option<Decimal>;
@@ -130,69 +153,109 @@ pub trait Tickers {
     fn mean(&self) -> Decimal;
     fn mid(&self) -> Decimal;
 
+    fn zscore_bid(&self) -> Result<Decimal, String>;
+    fn zscore_ask(&self) -> Result<Decimal, String>;
     fn calculate_zscore_last(&self, field: &str) -> Result<Decimal, String>;
 }
 
-impl Tickers for Vec<Ticker> {
-    fn std(&self) -> Option<Decimal> {
-        let mid = self.mid();
-        let sum = self
-            .iter()
-            .map(|t| {
-                let diff = t.mid() - mid;
-                diff * diff
-            })
-            .sum::<Decimal>();
+/// Shared implementation of `Tickers` for any slice-like container.
+/// Caller must supply an iterator and length.
+macro_rules! impl_tickers {
+    ($ty:ty, $iter_expr:expr, $len_expr:expr, $last_expr:expr) => {
+        impl Tickers for $ty {
+            fn std(&self) -> Option<Decimal> {
+                let mid = self.mean();
+                let sum = ($iter_expr)(self)
+                    .map(|t| {
+                        let diff = t.mid() - mid;
+                        diff * diff
+                    })
+                    .sum::<Decimal>();
 
-        let count = Decimal::from(self.len());
-        let variance = sum / count;
-        variance.sqrt()
-    }
+                let count = Decimal::from(($len_expr)(self));
+                let variance = sum / count;
+                variance.sqrt()
+            }
 
-    fn mean(&self) -> Decimal {
-        let sum = self.iter().map(|t| t.mid()).sum::<Decimal>();
-        let count = Decimal::from(self.len());
-        sum / count
-    }
+            fn mean(&self) -> Decimal {
+                let sum = ($iter_expr)(self).map(|t| t.mid()).sum::<Decimal>();
+                let count = Decimal::from(($len_expr)(self));
+                sum / count
+            }
 
-    fn mid(&self) -> Decimal {
-        let sum = self.iter().map(|t| t.mid()).sum::<Decimal>();
-        let count = Decimal::from(self.len());
-        sum / count
-    }
+            // mid() delegates to mean() - they are equivalent
+            fn mid(&self) -> Decimal {
+                self.mean()
+            }
 
-    fn calculate_zscore_last(&self, field: &str) -> Result<Decimal, String> {
-        if field != "bid" && field != "ask" {
-            return Err("無効なフィールド名です。".to_string());
-        } else if self.len() < 2 {
-            error!("データ数が2つ未満です。Zスコアを計算できません。");
-            return Ok(Decimal::ZERO);
+            fn zscore_bid(&self) -> Result<Decimal, String> {
+                let len = ($len_expr)(self);
+                if len < 2 {
+                    error!("データ数が2つ未満です。Zスコアを計算できません。");
+                    return Ok(Decimal::ZERO);
+                }
+
+                let n = Decimal::from(len as i64);
+                let (sum, sum_sq): (Decimal, Decimal) =
+                    ($iter_expr)(self).fold((Decimal::ZERO, Decimal::ZERO), |(sum, sum_sq), x| {
+                        let value = x.bid;
+                        (sum + value, sum_sq + value * value)
+                    });
+
+                let mean = sum / n;
+                let variance = (sum_sq - sum * sum / n) / (n - Decimal::ONE);
+                let std_dev = variance.sqrt().unwrap();
+
+                let last_value = ($last_expr)(self).unwrap().bid;
+                Ok((last_value - mean) / std_dev)
+            }
+
+            fn zscore_ask(&self) -> Result<Decimal, String> {
+                let len = ($len_expr)(self);
+                if len < 2 {
+                    error!("データ数が2つ未満です。Zスコアを計算できません。");
+                    return Ok(Decimal::ZERO);
+                }
+
+                let n = Decimal::from(len as i64);
+                let (sum, sum_sq): (Decimal, Decimal) =
+                    ($iter_expr)(self).fold((Decimal::ZERO, Decimal::ZERO), |(sum, sum_sq), x| {
+                        let value = x.ask;
+                        (sum + value, sum_sq + value * value)
+                    });
+
+                let mean = sum / n;
+                let variance = (sum_sq - sum * sum / n) / (n - Decimal::ONE);
+                let std_dev = variance.sqrt().unwrap();
+
+                let last_value = ($last_expr)(self).unwrap().ask;
+                Ok((last_value - mean) / std_dev)
+            }
+
+            fn calculate_zscore_last(&self, field: &str) -> Result<Decimal, String> {
+                match field {
+                    "bid" => self.zscore_bid(),
+                    "ask" => self.zscore_ask(),
+                    _ => Err("無効なフィールド名です。".to_string()),
+                }
+            }
         }
-
-        let (sum, sum_sq): (Decimal, Decimal) =
-            self.iter()
-                .fold((Decimal::ZERO, Decimal::ZERO), |(sum, sum_sq), x| {
-                    let value = match field {
-                        "bid" => x.bid,
-                        "ask" => x.ask,
-                        _ => return (Decimal::ZERO, Decimal::ZERO),
-                    };
-                    (sum + value, sum_sq + value * value)
-                });
-
-        let n = Decimal::from(self.len() as i64);
-        let mean = sum / n;
-        let variance = (sum_sq - sum * sum / n) / (n - Decimal::ONE);
-        let std_dev = variance.sqrt().unwrap();
-
-        let last_value = match field {
-            "bid" => self.last().unwrap().bid,
-            "ask" => self.last().unwrap().ask,
-            _ => return Err("無効なフィールド名です。".to_string()),
-        };
-        Ok((last_value - mean) / std_dev)
-    }
+    };
 }
+
+impl_tickers!(
+    Vec<Ticker>,
+    |s: &Vec<Ticker>| s.iter(),
+    |s: &Vec<Ticker>| s.len(),
+    |s: &Vec<Ticker>| s.last()
+);
+
+impl_tickers!(
+    VecDeque<Ticker>,
+    |s: &VecDeque<Ticker>| s.iter(),
+    |s: &VecDeque<Ticker>| s.len(),
+    |s: &VecDeque<Ticker>| s.back()
+);
 
 #[cfg(test)]
 mod tests {

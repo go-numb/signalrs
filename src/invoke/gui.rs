@@ -1,6 +1,7 @@
 use core::fmt;
 use std::{
     cmp::Ordering,
+    collections::VecDeque,
     str::FromStr,
     sync::{Arc, RwLock},
 };
@@ -8,7 +9,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use log::trace;
 use rand::Rng;
-use rust_decimal::{prelude::Zero, Decimal};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -37,7 +38,7 @@ impl WrappedData {
         }
 
         if let Some(last_order) = locked_data.status.orders.last_mut() {
-            if last_order.exit != Decimal::zero() {
+            if last_order.exit != Decimal::ZERO {
                 return;
             }
             // 現在価格を追記する
@@ -154,7 +155,7 @@ pub struct Status {
     pub message: String,
 
     pub ltp: Decimal,
-    pub orders: Vec<Order>,
+    pub orders: VecDeque<Order>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -166,8 +167,8 @@ impl Default for Status {
             is_processing: false,
             message: "off".to_string(),
 
-            ltp: Decimal::new(0, 0),
-            orders: Vec::new(),
+            ltp: Decimal::ZERO,
+            orders: VecDeque::new(),
             updated_at: Utc::now(),
         }
     }
@@ -181,8 +182,8 @@ impl Status {
             is_processing: false,
             message: "off".to_string(),
 
-            ltp: Decimal::new(0, 0),
-            orders: Vec::new(),
+            ltp: Decimal::ZERO,
+            orders: VecDeque::new(),
             updated_at: Utc::now(),
         }
     }
@@ -208,18 +209,15 @@ impl Status {
 
     #[allow(unused)]
     pub fn push(&mut self, order: Order) {
-        self.orders.push(order);
+        self.orders.push_back(order);
     }
 
     #[allow(unused)]
     // 指定配列数に縮小する
     pub fn shrink(&mut self, limit_length: usize) {
         // limit_length以上の古い部分を捨てる
-        let l = self.orders.len();
-        if l > limit_length {
-            let truncate = l - limit_length;
-            // 0..truncateの範囲を捨てる
-            self.orders.drain(0..truncate);
+        while self.orders.len() > limit_length {
+            self.orders.pop_front();
         }
     }
 }
@@ -252,7 +250,7 @@ impl Order {
         Order {
             side: String::new(),
             entry,
-            exit: Decimal::new(0, 0),
+            exit: Decimal::ZERO,
             entried_at: Utc::now(),
             exited_at: Utc::now(),
         }
@@ -262,7 +260,7 @@ impl Order {
         self.exit = if let Some(exit) = exit {
             exit
         } else {
-            Decimal::new(0, 0)
+            Decimal::ZERO
         };
         self.exited_at = Utc::now();
         self.clone()
@@ -351,6 +349,26 @@ impl Setting {
             self.interval as u64 * 1000u64
         }
     }
+
+    /// 文字列フィールドをパース済みの型付き構造体として返す
+    pub fn parsed(&self) -> ParsedSetting {
+        ParsedSetting {
+            order_type: self.order_type.parse().unwrap_or(0),
+            speed_ms: self.speed_to_ms(),
+            vol: Decimal::from_str(self.vol.as_str()).unwrap_or(Decimal::new(1, 1)),
+            interval: self.interval,
+            interval_random: self.interval_random,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsedSetting {
+    pub order_type: u8,
+    pub speed_ms: i64,
+    pub vol: Decimal,
+    pub interval: u32,
+    pub interval_random: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -374,24 +392,22 @@ pub async fn run(state: State<'_, Arc<RwLock<Data>>>, t: u8) -> Result<String, S
     let s = match t {
         0 => {
             // stop
-            let message = {
+            {
                 let mut locked_data = state.write().unwrap();
                 locked_data.status.is_running = false;
                 locked_data.status.is_processing = false;
                 locked_data.status.message = "off".to_string();
-                locked_data.status.message.clone()
-            };
-            message
+            }
+            "off".to_string()
         }
         1 => {
             // start
-            let message = {
+            {
                 let mut locked_data = state.write().unwrap();
                 locked_data.status.is_running = true;
                 locked_data.status.message = "on".to_string();
-                locked_data.status.message.clone()
-            };
-            message
+            }
+            "on".to_string()
         }
         2 => {
             // get status, confirm running
@@ -419,7 +435,7 @@ pub async fn get(state: State<'_, Arc<RwLock<Data>>>, _t: u8) -> Result<Data, St
 
     trace!("{:?}", data);
 
-    Ok(data.clone())
+    Ok(data)
 }
 
 /// set:: 設定を受ける関数
@@ -555,7 +571,7 @@ mod test {
         // Add an order
         let mut order = Order::new(initial_ltp);
         order.side = "BUY".to_string();
-        data.status.orders.push(order);
+        data.status.orders.push_back(order);
 
         let wrapped = WrappedData::new(data);
 
@@ -564,7 +580,7 @@ mod test {
         {
             let locked = wrapped.data.read().unwrap();
             assert_eq!(locked.status.ltp, updated_ltp);
-            assert_eq!(locked.status.orders[0].exit, Decimal::new(0, 0));
+            assert_eq!(locked.status.orders[0].exit, Decimal::ZERO);
         }
 
         // Test update with exit price update
