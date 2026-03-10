@@ -1,0 +1,3 @@
+[submodule "signal-clicker"]
+	path = signal-clicker
+	url = https://github.com/go-numb/signal-clicker.git
