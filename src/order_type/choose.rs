@@ -1,67 +1,83 @@
+use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    invoke::gui::Data,
+    invoke::gui::{Data, OrderType},
     middleware::ticker::TickerStats,
     order_type::{entry, exit, origin, simple},
 };
 
 use log::{trace, warn};
 
-fn prepare_settings(logic_setting: &Arc<RwLock<Data>>) -> Result<(u8, bool, bool), ()> {
-    let read_setting = match logic_setting.read() {
-        Ok(setting) => setting,
-        Err(e) => {
-            warn!("failed to read setting: {:?}", e);
-            return Err(());
-        }
-    };
-    let order_type = read_setting.setting.order_type.parse::<u8>().unwrap_or(0);
-    Ok((order_type, read_setting.status.is_running, read_setting.status.is_processing))
+pub struct OrderRequest {
+    pub order_type: OrderType,
+    pub setting: Arc<RwLock<Data>>,
+    pub tickers: TickerStats,
 }
 
-pub fn by(logic_setting: Arc<RwLock<Data>>, tickers: &TickerStats) {
-    // 設定値を読み込み、設定値に応じて処理を分岐する
-    // read lockはここで解放される
-    let (order_type, is_running, is_processing) = match prepare_settings(&logic_setting) {
-        Ok(result) => result,
-        Err(_) => return,
-    };
+pub struct OrderDispatcher {
+    tx: SyncSender<OrderRequest>,
+}
 
-    // 注文処理が停止中の場合は処理を行わない
-    if !is_running {
-        trace!("is not running");
-        return;
+impl OrderDispatcher {
+    pub fn new() -> Self {
+        let (tx, rx) = mpsc::sync_channel::<OrderRequest>(1);
+
+        std::thread::spawn(move || {
+            for request in rx {
+                match request.order_type {
+                    OrderType::Simple => {
+                        simple::process(request.setting, &request.tickers);
+                    }
+                    OrderType::BuyEntry | OrderType::SellEntry => {
+                        entry::process(request.order_type, request.setting, &request.tickers);
+                    }
+                    OrderType::ExitOnly => {
+                        exit::process(request.setting, &request.tickers);
+                    }
+                    OrderType::Custom => {
+                        origin::process(request.setting, &request.tickers);
+                    }
+                }
+            }
+        });
+
+        OrderDispatcher { tx }
     }
 
-    // すでにprocessが動いている場合は処理を行わない
-    if is_processing {
-        trace!("is processing");
-        return;
-    }
+    pub fn dispatch(&self, logic_setting: Arc<RwLock<Data>>, tickers: &TickerStats) {
+        // Check preconditions before sending
+        let order_type = {
+            let read_setting = match logic_setting.read() {
+                Ok(setting) => setting,
+                Err(e) => {
+                    warn!("failed to read setting: {:?}", e);
+                    return;
+                }
+            };
 
-    let setting = logic_setting.clone();
-    let cloned_tickers = tickers.clone();
-    match order_type {
-        0 => {
-            trace!("switch to simple logic");
-            std::thread::spawn(move || simple::process(setting, &cloned_tickers));
-        }
-        1..=2 => {
-            trace!("switch to buy/sell entry only logic");
-            std::thread::spawn(move || entry::process(order_type, setting, &cloned_tickers));
-        }
-        3 => {
-            trace!("switch to settlement order only logic");
-            std::thread::spawn(move || exit::process(setting, &cloned_tickers));
-        }
-        99 => {
-            trace!("switch to original order_type logic");
-            std::thread::spawn(move || origin::process(setting, &cloned_tickers));
-        }
-        _ => {
-            trace!("switch to simple logic");
-            std::thread::spawn(move || simple::process(setting, &cloned_tickers));
+            if !read_setting.status.is_running {
+                trace!("is not running");
+                return;
+            }
+
+            if read_setting.status.is_processing {
+                trace!("is processing");
+                return;
+            }
+
+            read_setting.setting.order_type
+        };
+
+        let request = OrderRequest {
+            order_type,
+            setting: logic_setting,
+            tickers: tickers.clone(),
+        };
+
+        // try_send: if worker is busy, skip this tick (backpressure)
+        if let Err(_) = self.tx.try_send(request) {
+            trace!("worker busy, skipping tick");
         }
     }
 }

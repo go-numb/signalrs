@@ -63,15 +63,18 @@ where
         });
     }
 
-    pub fn received_server(&self) {
+    pub fn received_server(&self) -> Result<(), crate::error::SignalError> {
         let addr = self.addr.clone();
         let tx = self.tx.clone();
 
+        let listener = TcpListener::bind(&addr).map_err(|e| crate::error::SignalError::TcpBind {
+            addr: addr.clone(),
+            source: e,
+        })?;
+
+        info!("Starting server on {}", addr);
+
         std::thread::spawn(move || {
-            info!("Starting server on {}", addr);
-
-            let listener = TcpListener::bind(&addr).expect("Could not bind");
-
             for stream in listener.incoming() {
                 match stream {
                     Ok(stream) => {
@@ -84,11 +87,11 @@ where
                                     Ok(line) => {
                                         match serde_json::from_str::<T>(&line) {
                                             Ok(t) => {
-                                                tx.send(Ok(t)).unwrap();
+                                                let _ = tx.send(Ok(t));
                                             }
                                             Err(e) => {
                                                 error!("Failed to parse JSON: {}", e);
-                                                tx.send(Err(e)).unwrap();
+                                                let _ = tx.send(Err(e));
                                             }
                                         }
                                     }
@@ -106,5 +109,7 @@ where
                 }
             }
         });
+
+        Ok(())
     }
 }

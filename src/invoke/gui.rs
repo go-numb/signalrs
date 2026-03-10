@@ -207,12 +207,10 @@ impl Status {
         }
     }
 
-    #[allow(unused)]
     pub fn push(&mut self, order: Order) {
         self.orders.push_back(order);
     }
 
-    #[allow(unused)]
     // 指定配列数に縮小する
     pub fn shrink(&mut self, limit_length: usize) {
         // limit_length以上の古い部分を捨てる
@@ -297,22 +295,77 @@ impl Mouse {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OrderType {
+    #[serde(rename = "0")]
+    Simple,
+    #[serde(rename = "1")]
+    BuyEntry,
+    #[serde(rename = "2")]
+    SellEntry,
+    #[serde(rename = "3")]
+    ExitOnly,
+    #[serde(rename = "99")]
+    Custom,
+}
+
+impl Default for OrderType {
+    fn default() -> Self {
+        OrderType::Simple
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Speed {
+    #[serde(rename = "0")]
+    UltraFast,
+    #[serde(rename = "1")]
+    Fast,
+    #[serde(rename = "2")]
+    Medium,
+    #[serde(rename = "3")]
+    Slow,
+}
+
+impl Default for Speed {
+    fn default() -> Self {
+        Speed::Fast
+    }
+}
+
+impl Speed {
+    pub fn to_ms(&self) -> i64 {
+        match self {
+            Speed::UltraFast => 1,
+            Speed::Fast => 100,
+            Speed::Medium => 1_000,
+            Speed::Slow => 3_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Setting {
     pub tcp: String,
-    pub order_type: String,
-    pub speed: String,
+    pub order_type: OrderType,
+    pub speed: Speed,
     pub vol: String,
     pub interval: u32,
     pub interval_random: bool,
+}
+
+impl Default for Setting {
+    fn default() -> Self {
+        Setting::new()
+    }
 }
 
 impl Setting {
     pub fn new() -> Self {
         Setting {
             tcp: "8080".to_string(),
-            order_type: "0".to_string(),
-            speed: "1".to_string(),
+            order_type: OrderType::Simple,
+            speed: Speed::Fast,
             vol: "0.1".to_string(),
             interval: 10,
             interval_random: false,
@@ -320,18 +373,12 @@ impl Setting {
     }
     // CORE: 設定値を条件用数値に変換する
     pub fn speed_to_ms(&self) -> i64 {
-        match self.speed.as_str() {
-            "0" => 1,
-            "1" => 100,
-            "2" => 1_000,
-            "3" => 3_000,
-            _ => 10_000,
-        }
+        self.speed.to_ms()
     }
     /// 条件分岐に使用する諸情報を取得する
     /// interval_random::trueの場合はランダムな時間待機する
     pub fn get(&self) -> (i64, Decimal) {
-        let target_diff_micros = self.speed_to_ms() * 1000;
+        let target_diff_micros = self.speed.to_ms() * 1000;
         let target_diff_ticks = Decimal::from_str(self.vol.as_str()).unwrap();
 
         (target_diff_micros, target_diff_ticks)
@@ -353,8 +400,7 @@ impl Setting {
     /// 文字列フィールドをパース済みの型付き構造体として返す
     pub fn parsed(&self) -> ParsedSetting {
         ParsedSetting {
-            order_type: self.order_type.parse().unwrap_or(0),
-            speed_ms: self.speed_to_ms(),
+            order_type: self.order_type,
             vol: Decimal::from_str(self.vol.as_str()).unwrap_or(Decimal::new(1, 1)),
             interval: self.interval,
             interval_random: self.interval_random,
@@ -364,8 +410,7 @@ impl Setting {
 
 #[derive(Debug, Clone)]
 pub struct ParsedSetting {
-    pub order_type: u8,
-    pub speed_ms: i64,
+    pub order_type: OrderType,
     pub vol: Decimal,
     pub interval: u32,
     pub interval_random: bool,

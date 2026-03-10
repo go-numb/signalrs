@@ -297,6 +297,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_ticker_stats_diff() {
         let mut ticker_from_csv = csv::Reader::from_path(
             r"C:\Users\o9oem\Documents\go-numb\_past\mt4-volatility\_data\USDJPY.csv",

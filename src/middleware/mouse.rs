@@ -3,23 +3,14 @@ use rand::Rng;
 
 use crate::invoke;
 
+pub trait MouseController {
+    fn random_xy(&self, min_x: i32, min_y: i32, max_x: i32, max_y: i32) -> (i32, i32);
+    fn move_to(&self, x: i32, y: i32);
+    fn order(&self, setting: &invoke::gui::Mouse);
+}
+
 #[derive(Default)]
 pub struct Mouse {}
-
-#[allow(unused)]
-pub enum MouseKeys {
-    Left,
-    Right,
-}
-
-impl MouseKeys {
-    pub fn to_keys(&self) -> Keys {
-        match self {
-            MouseKeys::Left => Keys::LEFT,
-            MouseKeys::Right => Keys::RIGHT,
-        }
-    }
-}
 
 impl Mouse {
     pub fn random_xy(&self, min_x: i32, min_y: i32, max_x: i32, max_y: i32) -> (i32, i32) {
@@ -30,37 +21,9 @@ impl Mouse {
         (x, y)
     }
 
-    #[allow(unused)]
-    pub fn pos(&self) -> (i32, i32) {
-        let rs = MouseRs::new();
-        let pos = rs.get_position().unwrap();
-        (pos.x, pos.y)
-    }
-
     pub fn move_to(&self, x: i32, y: i32) {
         let rs = MouseRs::new();
         rs.move_to(x, y).unwrap()
-    }
-
-    #[allow(unused)]
-    pub fn press(&self, key: &MouseKeys) {
-        let rs = MouseRs::new();
-        rs.press(&key.to_keys()).unwrap();
-    }
-
-    #[allow(unused)]
-    pub fn release(&self, key: &MouseKeys) {
-        let rs = MouseRs::new();
-        rs.release(&key.to_keys()).unwrap();
-    }
-
-    #[allow(unused)]
-    /// 都度mouseRs clientを取得するようにした
-    /// Arc<Mutexなどで持ち運び、clone,lockするよりも都度取得した方が安全かつ完結
-    /// マウスクライアントを持ちながら待機すると、マウスクライアントが解放されないため
-    pub fn click(&self) {
-        let rs = MouseRs::new();
-        rs.click(&Keys::LEFT).unwrap();
     }
 
     pub fn order(&self, setting: &invoke::gui::Mouse) {
@@ -77,6 +40,20 @@ impl Mouse {
         let rs = MouseRs::new();
         rs.move_to(x, y).unwrap();
         rs.click(&Keys::LEFT).unwrap()
+    }
+}
+
+impl MouseController for Mouse {
+    fn random_xy(&self, min_x: i32, min_y: i32, max_x: i32, max_y: i32) -> (i32, i32) {
+        Mouse::random_xy(self, min_x, min_y, max_x, max_y)
+    }
+
+    fn move_to(&self, x: i32, y: i32) {
+        Mouse::move_to(self, x, y)
+    }
+
+    fn order(&self, setting: &invoke::gui::Mouse) {
+        Mouse::order(self, setting)
     }
 }
 
