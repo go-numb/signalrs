@@ -81,3 +81,39 @@ impl OrderDispatcher {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_order_dispatcher_creation() {
+        let dispatcher = OrderDispatcher::new();
+        // Just verify it doesn't panic and the worker thread starts
+        let _ = dispatcher;
+    }
+
+    #[test]
+    fn test_dispatch_not_running() {
+        let dispatcher = OrderDispatcher::new();
+        let data = Data::default(); // is_running = false
+        let setting = Arc::new(RwLock::new(data));
+        let tickers = TickerStats::new();
+
+        // Should not panic or send
+        dispatcher.dispatch(setting, &tickers);
+    }
+
+    #[test]
+    fn test_dispatch_already_processing() {
+        let dispatcher = OrderDispatcher::new();
+        let mut data = Data::default();
+        data.status.is_running = true;
+        data.status.is_processing = true;
+        let setting = Arc::new(RwLock::new(data));
+        let tickers = TickerStats::new();
+
+        dispatcher.dispatch(setting, &tickers);
+        // Should skip without error
+    }
+}

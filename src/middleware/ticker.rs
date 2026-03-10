@@ -348,4 +348,159 @@ mod tests {
 
         println!("{} : {:?}", tickers.len(), tickers.last().unwrap());
     }
+
+    #[test]
+    fn test_ticker_mid() {
+        let t = Ticker {
+            bid: Decimal::from_str("100.0").unwrap(),
+            ask: Decimal::from_str("100.2").unwrap(),
+            ..Default::default()
+        };
+        assert_eq!(t.mid(), Decimal::from_str("100.1").unwrap());
+    }
+
+    #[test]
+    fn test_ticker_flag_default() {
+        let t = Ticker::default();
+        assert_eq!(t.flag(), 0);
+    }
+
+    #[test]
+    fn test_ticker_flag_some() {
+        let t = Ticker { flag: Some(3), ..Default::default() };
+        assert_eq!(t.flag(), 3);
+    }
+
+    #[test]
+    fn test_ticker_culc_diff_micros() {
+        let mut t = Ticker {
+            server_at: Some(Utc::now()),
+            ..Default::default()
+        };
+        t.culc_diff_micros();
+        assert!(t.recived_at.is_some());
+        assert!(t.diff_micros.is_some());
+        // diff should be very small (same process)
+        assert!(t.diff_micros.unwrap().abs() < 1_000_000); // less than 1 second
+    }
+
+    #[test]
+    fn test_ticker_stats_new_empty() {
+        let ts = TickerStats::new();
+        assert!(ts.is_empty());
+        assert_eq!(ts.len(), 0);
+        assert!(ts.last().is_none());
+    }
+
+    #[test]
+    fn test_ticker_stats_push_and_len() {
+        let mut ts = TickerStats::new();
+        ts.push(Ticker::default());
+        assert_eq!(ts.len(), 1);
+        assert!(!ts.is_empty());
+        ts.push(Ticker::default());
+        assert_eq!(ts.len(), 2);
+    }
+
+    #[test]
+    fn test_ticker_stats_shrink() {
+        let mut ts = TickerStats::new();
+        for _ in 0..20 {
+            ts.push(Ticker {
+                bid: Decimal::from_str("100.0").unwrap(),
+                ask: Decimal::from_str("100.2").unwrap(),
+                ..Default::default()
+            });
+        }
+        assert_eq!(ts.len(), 20);
+        ts.shrink(10);
+        assert_eq!(ts.len(), 10);
+        ts.shrink(10); // no-op
+        assert_eq!(ts.len(), 10);
+    }
+
+    #[test]
+    fn test_ticker_stats_diff_no_data() {
+        let ts = TickerStats::from(vec![
+            Ticker {
+                bid: Decimal::from_str("100.0").unwrap(),
+                ask: Decimal::from_str("100.2").unwrap(),
+                recived_at: Some(Utc::now()),
+                ..Default::default()
+            },
+        ]);
+        // Only 1 ticker, filter_micros should find nothing
+        let diff = ts.diff(1_000_000); // 1 second ago
+        assert_eq!(diff, Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_ticker_stats_filter_micros() {
+        use chrono::Duration;
+        let now = Utc::now();
+        let ts = TickerStats::from(vec![
+            Ticker {
+                bid: Decimal::from_str("100.0").unwrap(),
+                ask: Decimal::from_str("100.0").unwrap(),
+                recived_at: Some(now - Duration::milliseconds(500)),
+                ..Default::default()
+            },
+            Ticker {
+                bid: Decimal::from_str("101.0").unwrap(),
+                ask: Decimal::from_str("101.0").unwrap(),
+                recived_at: Some(now),
+                ..Default::default()
+            },
+        ]);
+        // Looking for ticker > 100ms ago - should find the first one
+        let found = ts.filter_micros(100_000); // 100ms in micros
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().bid, Decimal::from_str("100.0").unwrap());
+    }
+
+    #[test]
+    fn test_ticker_stats_diff_positive() {
+        use chrono::Duration;
+        let now = Utc::now();
+        let ts = TickerStats::from(vec![
+            Ticker {
+                bid: Decimal::from_str("100.0").unwrap(),
+                ask: Decimal::from_str("100.0").unwrap(),
+                recived_at: Some(now - Duration::milliseconds(200)),
+                ..Default::default()
+            },
+            Ticker {
+                bid: Decimal::from_str("101.0").unwrap(),
+                ask: Decimal::from_str("101.0").unwrap(),
+                recived_at: Some(now),
+                ..Default::default()
+            },
+        ]);
+        let diff = ts.diff(100_000); // 100ms
+        assert_eq!(diff, Decimal::from_str("1.0").unwrap()); // 101 - 100 = 1
+    }
+
+    #[test]
+    fn test_ticker_stats_zscore_insufficient_data() {
+        let ts = TickerStats::from(vec![
+            Ticker {
+                bid: Decimal::from_str("100.0").unwrap(),
+                ask: Decimal::from_str("100.0").unwrap(),
+                ..Default::default()
+            },
+        ]);
+        // Only 1 data point, zscore should return 0
+        let result = ts.zscore("bid").unwrap();
+        assert_eq!(result, Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_ticker_stats_zscore_invalid_field() {
+        let ts = TickerStats::from(vec![
+            Ticker::default(),
+            Ticker::default(),
+        ]);
+        let result = ts.zscore("invalid");
+        assert!(result.is_err());
+    }
 }

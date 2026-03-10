@@ -636,4 +636,206 @@ mod test {
             assert_eq!(locked.status.orders[0].exit, updated_ltp);
         }
     }
+
+    use std::str::FromStr;
+
+    // --- OrderType enum ---
+    #[test]
+    fn test_order_type_default() {
+        assert_eq!(OrderType::default(), OrderType::Simple);
+    }
+
+    #[test]
+    fn test_order_type_serde_roundtrip() {
+        // Verify serde rename works with JSON strings
+        let json = serde_json::to_string(&OrderType::Simple).unwrap();
+        assert_eq!(json, "\"0\"");
+        let json = serde_json::to_string(&OrderType::BuyEntry).unwrap();
+        assert_eq!(json, "\"1\"");
+        let json = serde_json::to_string(&OrderType::Custom).unwrap();
+        assert_eq!(json, "\"99\"");
+
+        // Deserialize
+        let ot: OrderType = serde_json::from_str("\"0\"").unwrap();
+        assert_eq!(ot, OrderType::Simple);
+        let ot: OrderType = serde_json::from_str("\"99\"").unwrap();
+        assert_eq!(ot, OrderType::Custom);
+    }
+
+    // --- Speed enum ---
+    #[test]
+    fn test_speed_to_ms() {
+        assert_eq!(Speed::UltraFast.to_ms(), 1);
+        assert_eq!(Speed::Fast.to_ms(), 100);
+        assert_eq!(Speed::Medium.to_ms(), 1_000);
+        assert_eq!(Speed::Slow.to_ms(), 3_000);
+    }
+
+    #[test]
+    fn test_speed_serde_roundtrip() {
+        let json = serde_json::to_string(&Speed::Fast).unwrap();
+        assert_eq!(json, "\"1\"");
+        let sp: Speed = serde_json::from_str("\"2\"").unwrap();
+        assert_eq!(sp, Speed::Medium);
+    }
+
+    // --- Setting ---
+    #[test]
+    fn test_setting_new_defaults() {
+        let s = Setting::new();
+        assert_eq!(s.tcp, "8080");
+        assert_eq!(s.order_type, OrderType::Simple);
+        assert_eq!(s.speed, Speed::Fast);
+        assert_eq!(s.vol, "0.1");
+        assert_eq!(s.interval, 10);
+        assert!(!s.interval_random);
+    }
+
+    #[test]
+    fn test_setting_speed_to_ms() {
+        let mut s = Setting::new();
+        assert_eq!(s.speed_to_ms(), 100); // Fast
+        s.speed = Speed::Slow;
+        assert_eq!(s.speed_to_ms(), 3_000);
+    }
+
+    #[test]
+    fn test_setting_get() {
+        let s = Setting::new();
+        let (micros, vol) = s.get();
+        assert_eq!(micros, 100_000); // 100ms * 1000
+        assert_eq!(vol, Decimal::from_str("0.1").unwrap());
+    }
+
+    #[test]
+    fn test_setting_get_sleep_ms_fixed() {
+        let s = Setting::new(); // interval=10, random=false
+        assert_eq!(s.get_sleep_ms(), 10_000);
+    }
+
+    #[test]
+    fn test_setting_get_sleep_ms_random() {
+        let mut s = Setting::new();
+        s.interval = 10;
+        s.interval_random = true;
+        let ms = s.get_sleep_ms();
+        assert!(ms >= 5_000 && ms <= 15_000, "random sleep was {} ms", ms);
+    }
+
+    #[test]
+    fn test_setting_parsed() {
+        let s = Setting::new();
+        let p = s.parsed();
+        assert_eq!(p.order_type, OrderType::Simple);
+        assert_eq!(p.vol, Decimal::from_str("0.1").unwrap());
+        assert_eq!(p.interval, 10);
+        assert!(!p.interval_random);
+    }
+
+    #[test]
+    fn test_setting_serde_roundtrip() {
+        let s = Setting::new();
+        let json = serde_json::to_string(&s).unwrap();
+        let deserialized: Setting = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.order_type, s.order_type);
+        assert_eq!(deserialized.speed, s.speed);
+    }
+
+    // --- Status ---
+    #[test]
+    fn test_status_processing_flag() {
+        let mut status = Status::new();
+        assert!(!status.is_processing);
+        status.processing();
+        assert!(status.is_processing);
+        status.processed();
+        assert!(!status.is_processing);
+    }
+
+    #[test]
+    fn test_status_update_ltp_changed() {
+        let mut status = Status::new();
+        status.update_ltp(Decimal::new(100, 0));
+        assert!(status.is_recived);
+        assert_eq!(status.ltp, Decimal::new(100, 0));
+    }
+
+    #[test]
+    fn test_status_update_ltp_unchanged() {
+        let mut status = Status::new();
+        status.update_ltp(Decimal::ZERO);
+        assert!(!status.is_recived); // same as initial value
+    }
+
+    #[test]
+    fn test_status_push_and_shrink() {
+        let mut status = Status::new();
+        for i in 0..12 {
+            status.push(Order::new(Decimal::new(i, 0)));
+        }
+        assert_eq!(status.orders.len(), 12);
+        status.shrink(8);
+        assert_eq!(status.orders.len(), 8);
+        // First remaining order should be entry=4 (oldest 4 removed)
+        assert_eq!(status.orders[0].entry, Decimal::new(4, 0));
+    }
+
+    // --- Order ---
+    #[test]
+    fn test_order_new() {
+        let order = Order::new(Decimal::new(150, 0));
+        assert_eq!(order.entry, Decimal::new(150, 0));
+        assert_eq!(order.exit, Decimal::ZERO);
+        assert!(order.side.is_empty());
+    }
+
+    #[test]
+    fn test_order_done_with_exit() {
+        let mut order = Order::new(Decimal::new(100, 0));
+        let result = order.done(Some(Decimal::new(105, 0)));
+        assert_eq!(result.exit, Decimal::new(105, 0));
+    }
+
+    #[test]
+    fn test_order_done_without_exit() {
+        let mut order = Order::new(Decimal::new(100, 0));
+        let result = order.done(None);
+        assert_eq!(result.exit, Decimal::ZERO);
+    }
+
+    // --- Mouse ---
+    #[test]
+    fn test_mouse_ok_valid() {
+        let m = Mouse { start_x: 0, start_y: 0, end_x: 10, end_y: 10, n: 1 };
+        assert!(m.ok().is_ok());
+    }
+
+    #[test]
+    fn test_mouse_ok_invalid() {
+        let m = Mouse { start_x: 10, start_y: 10, end_x: 5, end_y: 5, n: 1 };
+        assert!(m.ok().is_err());
+    }
+
+    #[test]
+    fn test_mouse_ok_equal_coords() {
+        let m = Mouse { start_x: 5, start_y: 5, end_x: 5, end_y: 5, n: 1 };
+        assert!(m.ok().is_err()); // equal is invalid
+    }
+
+    // --- Data ---
+    #[test]
+    fn test_data_default() {
+        let d = Data::default();
+        assert_eq!(d.order_type.len(), 5);
+        assert_eq!(d.speed.len(), 4);
+        assert_eq!(d.host, "localhost");
+    }
+
+    #[test]
+    fn test_data_new_with_custom_options() {
+        let custom_ops = vec![Op::default()];
+        let d = Data::new(Some(custom_ops.clone()), Some(custom_ops));
+        assert_eq!(d.order_type.len(), 1);
+        assert_eq!(d.speed.len(), 1);
+    }
 }
