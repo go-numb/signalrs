@@ -1,1 +1,38 @@
+# Rust
 /target
+**/target
+
+# Node.js (signal-clicker frontend)
+node_modules
+dist
+dist-ssr
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Editor
+.vscode
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env*
+*.local
+
+# MT5/MT4 source files
+resource/*.mq*
+resource/*.ex*
+
+# Save config (runtime)
+*.save/
